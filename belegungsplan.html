@@ -1,0 +1,1351 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Belegungsplan – Brunnmattstrasse 50</title>
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp }                                from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, signInWithEmailAndPassword,
+           onAuthStateChanged, signOut }                  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getFirestore, collection, getDocs,
+           doc, setDoc, deleteDoc, updateDoc,
+           arrayUnion }                                   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  // ─────────────────────────────────────────────────────────────
+  // 🔧 FIREBASE KONFIGURATION – hier deine Werte eintragen
+  //    (aus Firebase Console → Projekteinstellungen → Web-App)
+  // ─────────────────────────────────────────────────────────────
+  const firebaseConfig = {
+    apiKey:            "AIzaSyAMn_FOZbcCyX4jptdwsuTkivDW_bw4T5o",
+    authDomain:        "brunnmatt-belegung.firebaseapp.com",
+    projectId:         "brunnmatt-belegung",
+    storageBucket:     "brunnmatt-belegung.firebasestorage.app",
+    messagingSenderId: "509193978707",
+    appId:             "1:509193978707:web:ec4f6084f881f04af157a6",
+    measurementId:     "G-660ZEGF3HS"
+  };
+
+  const app  = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db   = getFirestore(app);
+
+  // Expose to global scope so non-module JS can call them
+  window._fbAuth      = auth;
+  window._fbSignIn    = signInWithEmailAndPassword;
+  window._fbSignOut   = signOut;
+  window._fbDb        = db;
+  window._fbCol       = collection;
+  window._fbGetDocs   = getDocs;
+  window._fbDoc       = doc;
+  window._fbSetDoc    = setDoc;
+  window._fbDeleteDoc = deleteDoc;
+  window._fbUpdateDoc = updateDoc;
+  window._fbArrayUnion= arrayUnion;
+
+  // Watch auth state → load events and render
+  onAuthStateChanged(auth, async user => {
+    if (user) {
+      document.getElementById('loginOverlay').style.display = 'none';
+      document.getElementById('appShell').style.display     = 'block';
+      document.getElementById('logoutBtn').style.display    = 'inline-block';
+      if (typeof loadEvents === 'function') await loadEvents();
+      if (typeof render     === 'function') render();
+    } else {
+      document.getElementById('loginOverlay').style.display = 'flex';
+      document.getElementById('appShell').style.display     = 'none';
+      document.getElementById('logoutBtn').style.display    = 'none';
+    }
+  });
+</script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, sans-serif;
+  background: #f0f4f8;
+  color: #333;
+  min-height: 100vh;
+}
+
+/* ── HEADER ── */
+header {
+  background: linear-gradient(135deg, #1e2d3d 0%, #2c3e50 100%);
+  color: white;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+}
+.header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 24px 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+header h1 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0.95;
+}
+.header-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 24px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.period-nav {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: rgba(255,255,255,0.1);
+  border-radius: 8px;
+  overflow: hidden;
+}
+#periodLabel {
+  font-size: 0.88rem;
+  font-weight: 600;
+  min-width: 180px;
+  text-align: center;
+  padding: 0 4px;
+}
+.view-group {
+  display: flex;
+  gap: 4px;
+}
+.action-group {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+button {
+  cursor: pointer;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 13px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  transition: all 0.15s;
+  letter-spacing: 0.01em;
+}
+.nav-btn {
+  background: transparent;
+  color: white;
+  padding: 7px 13px;
+  font-size: 1rem;
+  border-radius: 0;
+}
+.nav-btn:hover { background: rgba(255,255,255,0.15); }
+.view-btn {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.8);
+  border-radius: 6px;
+  padding: 6px 14px;
+}
+.view-btn.active {
+  background: #3498db;
+  color: white;
+  box-shadow: 0 2px 8px rgba(52,152,219,0.45);
+}
+.view-btn:hover:not(.active) { background: rgba(255,255,255,0.2); }
+.action-btn {
+  background: rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.9);
+  border: 1px solid rgba(255,255,255,0.15);
+}
+.action-btn:hover { background: rgba(255,255,255,0.22); color: white; }
+.action-btn.primary {
+  background: #3498db;
+  color: white;
+  border-color: transparent;
+}
+.action-btn.primary:hover { background: #2980b9; }
+#logoutBtn {
+  background: transparent;
+  color: rgba(255,255,255,0.55);
+  font-size: 0.78rem;
+  padding: 5px 10px;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+}
+#logoutBtn:hover { color: white; background: rgba(255,255,255,0.1); }
+
+/* ── LEGEND ── */
+#legend {
+  background: white;
+  padding: 10px 24px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  border-bottom: 1px solid #e5e9ee;
+  align-items: center;
+}
+.legend-label { font-size: 0.75rem; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 0.05em; }
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.78rem;
+  color: #444;
+}
+.legend-dot { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; }
+
+/* ── CALENDAR WRAPPER ── */
+#calendar { padding: 18px 20px; max-width: 1440px; margin: 0 auto; }
+
+/* ── WEEK GRID ── */
+.week-grid {
+  background: white;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+}
+.week-header {
+  display: grid;
+  grid-template-columns: 140px repeat(7, 1fr);
+  background: #2c3e50;
+}
+.wh-room { background: #1a252f; display: flex; align-items: center; justify-content: center; }
+.week-header-cell {
+  padding: 10px 6px;
+  text-align: center;
+  color: rgba(255,255,255,0.9);
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.4;
+  border-left: 1px solid rgba(255,255,255,0.08);
+}
+.week-header-cell.today-col {
+  background: #2980b9;
+  color: white;
+}
+.week-room-row {
+  display: grid;
+  grid-template-columns: 140px repeat(7, 1fr);
+  border-bottom: 1px solid #ecf0f1;
+}
+.week-room-row:last-child { border-bottom: none; }
+.room-label {
+  background: #f7f9fb;
+  padding: 10px 14px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #556;
+  border-right: 2px solid #dde3ea;
+  display: flex;
+  align-items: flex-start;
+  padding-top: 12px;
+}
+.room-icon { margin-right: 6px; }
+.day-cell {
+  padding: 6px;
+  min-height: 88px;
+  border-left: 1px solid #ecf0f1;
+  cursor: pointer;
+  transition: background 0.12s;
+  position: relative;
+}
+.day-cell:hover { background: #f4f8ff; }
+.day-cell.weekend-col { background: #fafbfd; }
+.day-cell.today-col { background: #fffbf0; }
+.day-cell:hover .add-hint { opacity: 1; }
+.add-hint {
+  position: absolute;
+  bottom: 5px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.65rem;
+  color: #bbb;
+  opacity: 0;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* ── EVENT CHIP ── */
+.event-chip {
+  border-radius: 5px;
+  padding: 3px 7px;
+  margin-bottom: 3px;
+  font-size: 0.7rem;
+  color: white;
+  font-weight: 600;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: filter 0.1s, transform 0.1s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+.event-chip:hover { filter: brightness(0.88); transform: translateY(-1px); }
+.event-chip .chip-time { opacity: 0.85; font-size: 0.63rem; font-weight: 400; }
+.event-chip .chip-note { opacity: 0.75; font-size: 0.6rem; font-weight: 400; margin-top: 1px; }
+
+/* ── MONTH GRID ── */
+.month-grid {
+  background: white;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+}
+.month-header {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  background: #2c3e50;
+}
+.month-header-cell {
+  padding: 10px;
+  text-align: center;
+  color: rgba(255,255,255,0.9);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.month-body { display: grid; grid-template-columns: repeat(7, 1fr); }
+.month-day {
+  border-right: 1px solid #ecf0f1;
+  border-bottom: 1px solid #ecf0f1;
+  min-height: 108px;
+  padding: 6px;
+  cursor: pointer;
+  transition: background 0.12s;
+  vertical-align: top;
+}
+.month-day:hover { background: #f4f8ff; }
+.month-day.other-month { background: #fafbfd; }
+.month-day.other-month .month-day-num { color: #ccc; }
+.month-day.weekend-day { background: #fafbfd; }
+.month-day.today-day { background: #fffbf0; }
+.month-day-num {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #556;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.today-badge {
+  background: #e67e22;
+  color: white;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+}
+.month-chip {
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin-bottom: 2px;
+  font-size: 0.65rem;
+  color: white;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.month-more { font-size: 0.62rem; color: #999; padding: 1px 4px; }
+
+/* ── MODAL ── */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 200;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(2px);
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: white;
+  border-radius: 14px;
+  padding: 26px;
+  width: 440px;
+  max-width: 94vw;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.25);
+  animation: slideUp 0.2s ease;
+}
+@keyframes slideUp {
+  from { transform: translateY(16px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.modal h2 { font-size: 1.05rem; margin-bottom: 18px; color: #2c3e50; }
+.form-group { margin-bottom: 13px; }
+.form-group label { display: block; font-size: 0.75rem; font-weight: 700; color: #666; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  border: 1.5px solid #dde3ea;
+  border-radius: 7px;
+  padding: 8px 10px;
+  font-size: 0.85rem;
+  color: #333;
+  background: #fafbfc;
+  transition: border-color 0.15s;
+}
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: #3498db;
+  background: white;
+}
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; align-items: center; }
+.btn-primary { background: #3498db; color: white; padding: 8px 18px; }
+.btn-primary:hover { background: #2980b9; }
+.btn-danger { background: #e74c3c; color: white; padding: 8px 14px; margin-right: auto; }
+.btn-danger:hover { background: #c0392b; }
+.btn-secondary { background: #eef1f5; color: #556; padding: 8px 14px; }
+.btn-secondary:hover { background: #e0e5ec; }
+
+/* ── DELETE CONFIRM DIALOG ── */
+.del-dialog {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 300;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(2px);
+}
+.del-dialog.open { display: flex; }
+.del-box {
+  background: white;
+  border-radius: 14px;
+  padding: 26px 28px;
+  width: 380px;
+  max-width: 92vw;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.28);
+  animation: slideUp 0.2s ease;
+}
+.del-box h3 { font-size: 1rem; color: #2c3e50; margin-bottom: 8px; }
+.del-box p  { font-size: 0.83rem; color: #667; margin-bottom: 20px; line-height: 1.5; }
+.del-options { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+.del-opt {
+  border: 2px solid #e0e5ec;
+  border-radius: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  font-size: 0.85rem;
+  color: #333;
+  background: white;
+  text-align: left;
+}
+.del-opt:hover { border-color: #e74c3c; background: #fff5f5; }
+.del-opt strong { display: block; margin-bottom: 2px; }
+.del-opt span { font-size: 0.75rem; color: #888; }
+.del-cancel { font-size: 0.8rem; color: #aaa; cursor: pointer; text-decoration: underline; display: block; text-align: center; }
+.del-cancel:hover { color: #555; }
+
+/* ── RECURRENCE PREVIEW ── */
+.recurrence-hint {
+  font-size: 0.73rem;
+  color: #3498db;
+  margin-top: 4px;
+  min-height: 1em;
+}
+
+/* ── TOAST ── */
+#toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(10px);
+  background: #2c3e50;
+  color: white;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  opacity: 0;
+  transition: all 0.3s;
+  z-index: 300;
+  pointer-events: none;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ── PRINT ── */
+@media print {
+  header, #legend, .action-btn, .view-btn, .nav-btn, .period-nav { }
+  body { background: white; }
+  #calendar { padding: 0; }
+  .week-grid, .month-grid { box-shadow: none; border: 1px solid #ddd; }
+  .day-cell { min-height: 60px; }
+  .month-day { min-height: 80px; }
+  .add-hint { display: none !important; }
+  .modal-overlay { display: none !important; }
+  #toast { display: none !important; }
+  header { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .event-chip, .month-chip { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+}
+</style>
+
+</head>
+<body>
+
+<!-- ── LOGIN OVERLAY ── -->
+<div id="loginOverlay" style="
+  display:flex; position:fixed; inset:0; z-index:1000;
+  background: linear-gradient(135deg,#2c3e50 0%,#3d5166 100%);
+  align-items:center; justify-content:center;">
+  <div style="background:white;border-radius:16px;padding:40px 36px;width:360px;
+              max-width:90vw;box-shadow:0 24px 64px rgba(0,0,0,0.35);text-align:center;">
+    <div style="font-size:2.5rem;margin-bottom:8px">🏠</div>
+    <h2 style="color:#2c3e50;font-size:1.15rem;margin-bottom:4px">Brunnmattstrasse 50</h2>
+    <p style="color:#888;font-size:0.82rem;margin-bottom:28px">Belegungsplan – Anmeldung</p>
+    <div style="text-align:left;margin-bottom:14px">
+      <label style="font-size:0.75rem;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:4px">E-Mail</label>
+      <input id="loginEmail" type="email" placeholder="team@brunnmatt.ch"
+        style="width:100%;border:1.5px solid #dde3ea;border-radius:8px;padding:10px 12px;font-size:0.9rem;outline:none"
+        onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <div style="text-align:left;margin-bottom:22px">
+      <label style="font-size:0.75rem;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:4px">Passwort</label>
+      <input id="loginPassword" type="password" placeholder="••••••••"
+        style="width:100%;border:1.5px solid #dde3ea;border-radius:8px;padding:10px 12px;font-size:0.9rem;outline:none"
+        onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button onclick="doLogin()" style="width:100%;background:#2c3e50;color:white;border:none;border-radius:8px;
+      padding:12px;font-size:0.9rem;font-weight:700;cursor:pointer;transition:background .15s"
+      onmouseover="this.style.background='#3d5166'" onmouseout="this.style.background='#2c3e50'">
+      Anmelden
+    </button>
+    <p id="loginError" style="color:#e74c3c;font-size:0.78rem;margin-top:12px;min-height:1em"></p>
+    <p style="color:#bbb;font-size:0.72rem;margin-top:18px">
+      Zugangsdaten bei der Verwaltung anfragen
+    </p>
+  </div>
+</div>
+
+<!-- ── APP (hidden until logged in) ── -->
+<div id="appShell" style="display:none">
+
+<header>
+  <div class="header-top">
+    <h1>🏠 Belegungsplan &ndash; Brunnmattstrasse 50</h1>
+    <button id="logoutBtn" onclick="doLogout()" style="display:none">🔓 Abmelden</button>
+  </div>
+  <div class="header-bottom">
+    <div class="period-nav">
+      <button class="nav-btn" onclick="navigate(-1)" title="Zurück">&#9664;</button>
+      <span id="periodLabel"></span>
+      <button class="nav-btn" onclick="navigate(1)"  title="Vor">&#9654;</button>
+    </div>
+    <div class="view-group">
+      <button class="view-btn active" id="btnWeek"  onclick="setView('week')">Woche</button>
+      <button class="view-btn"        id="btnMonth" onclick="setView('month')">Monat</button>
+    </div>
+    <div class="action-group">
+      <button class="action-btn" onclick="window.print()" title="Drucken / Als PDF speichern">🖨️ Drucken</button>
+      <button class="action-btn" onclick="sendEmail()"    title="Aktuellen Plan mailen">📧 Mailen</button>
+      <button class="action-btn primary" onclick="openAddEvent(null,null,null)">＋ Termin</button>
+    </div>
+  </div>
+</header>
+
+<div id="legend">
+  <span class="legend-label">Gruppen:</span>
+</div>
+
+<div id="calendar"></div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modalOverlay" onclick="closeModalOnBg(event)">
+  <div class="modal">
+    <h2 id="modalTitle">Termin hinzufügen</h2>
+    <div class="form-group">
+      <label>Gruppe / Name</label>
+      <input type="text" id="fTitle" placeholder="z.B. Immanuel Gemeinde">
+    </div>
+    <div class="form-group">
+      <label>Raum</label>
+      <select id="fRoom">
+        <option value="Saal">Saal</option>
+        <option value="Gemeinschaftsraum">Gemeinschaftsraum</option>
+        <option value="Küche">Küche</option>
+        <option value="Park">Park</option>
+        <option value="Saal,Gemeinschaftsraum">Saal + Gemeinschaftsraum</option>
+        <option value="Saal,Gemeinschaftsraum,Küche,Park">Alle Räume</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Von</label>
+        <input type="time" id="fStart" value="09:00">
+      </div>
+      <div class="form-group">
+        <label>Bis</label>
+        <input type="time" id="fEnd" value="12:00">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Datum</label>
+      <input type="date" id="fDate" onchange="updateRecurrenceHint()">
+    </div>
+    <div class="form-group">
+      <label>Wiederholung</label>
+      <select id="fRecurrence" onchange="updateRecurrenceHint()">
+        <option value="none">Einmalig</option>
+        <option value="weekly">Jede Woche (gleicher Wochentag)</option>
+        <option value="monthly-1">Jeden 1. [Wochentag] im Monat</option>
+        <option value="monthly-2">Jeden 2. [Wochentag] im Monat</option>
+        <option value="monthly-3">Jeden 3. [Wochentag] im Monat</option>
+        <option value="monthly-4">Jeden 4. [Wochentag] im Monat</option>
+      </select>
+      <div class="recurrence-hint" id="recurrenceHint"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Farbe</label>
+        <input type="color" id="fColor" value="#3498db" style="height:38px;padding:3px 4px">
+      </div>
+      <div class="form-group">
+        <label>Preis / CHF</label>
+        <input type="text" id="fPrice" placeholder="z.B. 440 CHF/Mt">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Notiz</label>
+      <textarea id="fNote" rows="2" style="resize:vertical" placeholder="Kontakt, Besonderheiten…"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-danger" id="btnDelete" onclick="deleteEvent()" style="display:none">🗑 Löschen</button>
+      <button class="btn-secondary" onclick="closeModal()">Abbrechen</button>
+      <button class="btn-primary" onclick="saveEvent()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Confirm Dialog -->
+<div class="del-dialog" id="delDialog">
+  <div class="del-box">
+    <h3>🗑 Termin löschen</h3>
+    <p id="delDesc">Dieser Termin wiederholt sich. Was möchtest du löschen?</p>
+    <div class="del-options">
+      <button class="del-opt" onclick="confirmDelete('one')">
+        <strong>Nur diesen Termin</strong>
+        <span>Alle anderen Termine der Serie bleiben bestehen.</span>
+      </button>
+      <button class="del-opt" onclick="confirmDelete('all')">
+        <strong>Ganze Serie löschen</strong>
+        <span>Alle Termine dieser Wiederholung werden entfernt.</span>
+      </button>
+    </div>
+    <a class="del-cancel" onclick="closeDelDialog()">Abbrechen</a>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+</div><!-- end #appShell -->
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// DATA
+// ═══════════════════════════════════════════════════════════
+
+const ROOMS = ['Saal', 'Gemeinschaftsraum', 'Küche', 'Park'];
+const ROOM_ICONS = { 'Saal': '🎭', 'Gemeinschaftsraum': '🤝', 'Küche': '🍳', 'Park': '🌳' };
+
+// Fixed group colours
+const GROUP_COLORS = {
+  'Immanuel Gemeinde': '#2980b9',
+  'Koreaner':          '#27ae60',
+  'Thai Gemeinde':     '#d68910',
+  'VBG':               '#8e44ad',
+  'Araber Gemeinde':   '#c0392b',
+  'Jungschi':          '#16a085',
+  'Teens / Preteens':  '#e67e22',
+};
+
+// Built-in recurring templates (from meeting notes 23.3.26)
+// recurrence: 'weekly' | 'monthly-N'
+const TEMPLATES = [
+  {
+    id:'t1', title:'Immanuel Gemeinde',
+    rooms:['Saal','Gemeinschaftsraum','Küche'],
+    dayOfWeek:0, start:'09:00', end:'14:00',
+    recurrence:'weekly',
+    color: GROUP_COLORS['Immanuel Gemeinde'],
+    note:'Saal, Gemeinschaftsraum, Küche – So Morgen'
+  },
+  {
+    id:'t2', title:'Immanuel Gemeinde',
+    rooms:['Saal'],
+    dayOfWeek:0, start:'19:00', end:'21:30',
+    recurrence:'weekly',
+    color: GROUP_COLORS['Immanuel Gemeinde'],
+    note:'Saal – So Abend'
+  },
+  {
+    id:'t3', title:'Immanuel Gemeinde',
+    rooms:['Saal'],
+    dayOfWeek:3, start:'19:30', end:'21:00',
+    recurrence:'weekly',
+    color: GROUP_COLORS['Immanuel Gemeinde'],
+    note:'Saal – Mi Abend'
+  },
+  {
+    id:'t4', title:'Koreaner',
+    rooms:['Gemeinschaftsraum'],
+    dayOfWeek:0, start:'14:30', end:'18:00',
+    recurrence:'weekly',
+    color: GROUP_COLORS['Koreaner'],
+    note:'Gemeinschaftsraum · 440 CHF/Mt · 3. So mit Essen'
+  },
+  {
+    id:'t5', title:'VBG',
+    rooms:['Gemeinschaftsraum','Küche'],
+    dayOfWeek:5, start:'17:00', end:'22:00',
+    recurrence:'monthly-1',
+    color: GROUP_COLORS['VBG'],
+    note:'1. Freitag im Monat · Gemeinschaftsraum + Küche · 50 CHF'
+  },
+  // 1. Samstag im Monat – ab August 2026
+  {
+    id:'t6', title:'Teens / Preteens',
+    rooms:['Saal','Gemeinschaftsraum','Küche','Park'],
+    dayOfWeek:6, start:'18:00', end:'22:00',
+    recurrence:'monthly-1',
+    color:'#e67e22',
+    note:'1. Samstag im Monat · alle Räume'
+  },
+  // 3. Samstag im Monat – ab August 2026
+  {
+    id:'t7', title:'Teens / Preteens',
+    rooms:['Saal','Gemeinschaftsraum','Küche','Park'],
+    dayOfWeek:6, start:'18:00', end:'22:00',
+    recurrence:'monthly-3',
+    color:'#e67e22',
+    note:'3. Samstag im Monat · alle Räume'
+  },
+  // Thai: 6x/Jahr – specific dates must be added manually as one-off events
+  // Araber Gemeinde: unregelmässig – add manually
+];
+
+// All events – seeded from TEMPLATES into Firestore on first load, then editable
+let customEvents = [];
+const SEED_VERSION = '7'; // bump this when seed data changes to force re-seed
+
+// Thai Gemeinde specific dates 2026 (Gemeinschaftsraum + Küche, 10:00–17:00)
+function buildThaiEvents() {
+  const dates = [
+    '2026-02-21','2026-03-21','2026-04-18',
+    '2026-09-19','2026-10-10','2026-11-14','2026-12-12'
+  ];
+  return dates.map(d => ({
+    id: `thai_${d}`,
+    title: 'Thai Gemeinde',
+    room: 'Gemeinschaftsraum,Küche',
+    start: '10:00', end: '17:00',
+    date: d,
+    recurrence: 'none',
+    color: GROUP_COLORS['Thai Gemeinde'],
+    note: 'Samstag · kein Vertrag',
+    price: '',
+    exceptions: []
+  }));
+}
+
+// Jungschi specific dates (Park, 12:00–17:00)
+function buildJungschiEvents() {
+  const JUNGSCHI_COLOR = '#16a085';
+  const dates = [
+    // 2027
+    '2027-01-16','2027-01-30','2027-02-27','2027-03-13','2027-03-27',
+    '2027-04-03','2027-05-01','2027-05-15','2027-05-29','2027-06-12','2027-06-26',
+    '2027-08-21','2027-09-04','2027-09-18','2027-10-23',
+    '2027-11-06','2027-11-20','2027-12-04','2027-12-18',
+    // 2028
+    '2028-01-15','2028-01-29','2028-02-26','2028-03-11','2028-03-25',
+    '2028-05-06','2028-05-20','2028-06-03','2028-06-17','2028-07-01',
+    '2028-08-19','2028-09-02','2028-09-16','2028-10-21',
+    '2028-11-04','2028-11-18','2028-12-02','2028-12-16',
+    // 2029
+    '2029-01-20','2029-02-17','2029-03-03','2029-03-17','2029-03-31',
+    '2029-04-28','2029-05-12','2029-05-26','2029-06-09','2029-06-23',
+    '2029-08-18','2029-09-01','2029-09-15','2029-10-20',
+    '2029-11-03','2029-11-17','2029-12-01','2029-12-15',
+  ];
+  const evs = dates.map((d, i) => ({
+    id: `jungschi_${d}`,
+    title: 'Jungschi',
+    room: 'Saal',
+    start: '12:00', end: '17:00',
+    date: d,
+    recurrence: 'none',
+    color: JUNGSCHI_COLOR,
+    note: '',
+    price: '',
+    exceptions: []
+  }));
+  return evs;
+}
+
+// Convert TEMPLATES to Firestore-compatible format
+function buildSeedEvents() {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const templateEvs = TEMPLATES.map(t => {
+    // Teens/Preteens start August 2026 — use fixed base dates
+    if (t.id === 't6') return { id:'t6', title:t.title, room:t.rooms.join(','), start:t.start, end:t.end, date:'2026-08-01', recurrence:t.recurrence, color:t.color, note:t.note||'', price:'', exceptions:[] };
+    if (t.id === 't7') return { id:'t7', title:t.title, room:t.rooms.join(','), start:t.start, end:t.end, date:'2026-08-15', recurrence:t.recurrence, color:t.color, note:t.note||'', price:'', exceptions:[] };
+    const d = new Date(today);
+    while (d.getDay() !== t.dayOfWeek) d.setDate(d.getDate() - 1);
+    return {
+      id: t.id,
+      title: t.title,
+      room: t.rooms.join(','),
+      start: t.start, end: t.end,
+      date: isoDate(d),
+      recurrence: t.recurrence,
+      color: t.color,
+      note: t.note || '',
+      price: '',
+      exceptions: []
+    };
+  });
+  return [...templateEvs, ...buildThaiEvents(), ...buildJungschiEvents()];
+}
+
+let editingId   = null;
+let editingDate = null;
+let currentView = 'week';
+let currentDate = new Date(); currentDate.setHours(0,0,0,0);
+
+// ═══════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════
+
+const isoDate   = d => { const p = n => String(n).padStart(2,'0'); return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate()); };
+const parseDate = s => { const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); };
+const addDays   = (d,n) => { const r=new Date(d); r.setDate(r.getDate()+n); return r; };
+
+function weekStart(d) {
+  const r = new Date(d);
+  const dow = r.getDay();
+  r.setDate(r.getDate() + (dow === 0 ? -6 : 1 - dow)); // Monday
+  return r;
+}
+function fmtDate(d, opts) { return d.toLocaleDateString('de-CH', opts); }
+
+function nthWeekdayOfMonth(year, month, weekday, n) {
+  let d = new Date(year, month, 1), count = 0;
+  while (d.getMonth() === month) {
+    if (d.getDay() === weekday && ++count === n) return new Date(d);
+    d.setDate(d.getDate() + 1);
+  }
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════
+// EVENT RESOLUTION
+// ═══════════════════════════════════════════════════════════
+
+function templateOccursOn(t, date) {
+  if (t.recurrence === 'weekly') return date.getDay() === t.dayOfWeek;
+  if (t.recurrence.startsWith('monthly-')) {
+    const n = +t.recurrence.split('-')[1];
+    const nth = nthWeekdayOfMonth(date.getFullYear(), date.getMonth(), t.dayOfWeek, n);
+    return nth && isoDate(nth) === isoDate(date);
+  }
+  return false;
+}
+
+function customOccursOn(ev, date) {
+  const ds = isoDate(date);
+  if (ev.exceptions && ev.exceptions.includes(ds)) return false;
+  // Recurring events never show before their base/start date
+  if (ev.recurrence !== 'none' && ds < ev.date) return false;
+  if (ev.recurrence === 'none') return ev.date === ds;
+  if (ev.recurrence === 'weekly') return date.getDay() === parseDate(ev.date).getDay();
+  if (ev.recurrence.startsWith('monthly-')) {
+    const n = +ev.recurrence.split('-')[1];
+    const baseDay = parseDate(ev.date).getDay();
+    const nth = nthWeekdayOfMonth(date.getFullYear(), date.getMonth(), baseDay, n);
+    return nth && isoDate(nth) === ds;
+  }
+  return false;
+}
+
+function getEventsForCell(date, room) {
+  return customEvents.filter(ev => {
+    const rooms = ev.room.split(',').map(r => r.trim());
+    return rooms.includes(room) && customOccursOn(ev, date);
+  });
+}
+
+function getAllEventsForDate(date) {
+  const seen = new Set(), out = [];
+  for (const room of ROOMS)
+    for (const ev of getEventsForCell(date, room)) {
+      const key = ev.id + '|' + room;
+      if (!seen.has(key)) { seen.add(key); out.push({ ...ev, room }); }
+    }
+  return out;
+}
+
+// ═══════════════════════════════════════════════════════════
+// LEGEND
+// ═══════════════════════════════════════════════════════════
+
+function renderLegend() {
+  const colors = { ...GROUP_COLORS };
+  customEvents.forEach(e => { colors[e.title] = colors[e.title] || e.color; });
+  const el = document.getElementById('legend');
+  el.innerHTML = '<span class="legend-label">Gruppen:</span>';
+  for (const [name, color] of Object.entries(colors))
+    el.innerHTML += `<div class="legend-item"><div class="legend-dot" style="background:${color}"></div><span>${name}</span></div>`;
+  el.innerHTML += `<div class="legend-item" style="margin-left:auto;color:#aaa;font-size:0.72rem">Klick auf freie Zelle = Termin hinzufügen</div>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// CHIP HTML
+// ═══════════════════════════════════════════════════════════
+
+function chipHtml(ev, small = false) {
+  const onclick = `openEditEvent('${ev.id}',event)`;
+  const noteHtml = (!small && ev.note) ? `<div class="chip-note">${ev.note}</div>` : '';
+  const cls = small ? 'month-chip' : 'event-chip';
+  return `<div class="${cls}" style="background:${ev.color}" title="${ev.title}${ev.note?' · '+ev.note:''}" onclick="${onclick}">
+    ${small ? ev.title.split(' ')[0] : `<div>${ev.title}</div><div class="chip-time">${ev.start}–${ev.end}</div>${noteHtml}`}
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// WEEK VIEW
+// ═══════════════════════════════════════════════════════════
+
+function renderWeek() {
+  const ws   = weekStart(currentDate);
+  const days = Array.from({length:7}, (_,i) => addDays(ws,i));
+  const today = isoDate(new Date());
+  const dayNames = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+
+  let html = `<div class="week-grid"><div class="week-header"><div class="week-header-cell wh-room" style="background:#1a252f">Raum</div>`;
+  days.forEach((d,i) => {
+    const isToday = isoDate(d) === today;
+    html += `<div class="week-header-cell${isToday?' today-col':''}">${dayNames[i]}<br><span style="font-size:0.9em;font-weight:400">${d.getDate()}.${d.getMonth()+1}.</span></div>`;
+  });
+  html += '</div>';
+
+  for (const room of ROOMS) {
+    html += `<div class="week-room-row"><div class="room-label">${ROOM_ICONS[room]||''} ${room}</div>`;
+    days.forEach((d,i) => {
+      const isToday  = isoDate(d) === today;
+      const isWkEnd  = i >= 5;
+      const evs      = getEventsForCell(d, room);
+      const ds       = isoDate(d);
+      html += `<div class="day-cell${isToday?' today-col':isWkEnd?' weekend-col':''}" data-date="${ds}" onclick="openAddEvent('${ds}','${room}',event)">`;
+      evs.forEach(ev => html += chipHtml(ev));
+      html += `<div class="add-hint">＋ Termin</div></div>`;
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+  document.getElementById('calendar').innerHTML = html;
+  document.getElementById('periodLabel').textContent =
+    `${fmtDate(days[0],{day:'numeric',month:'short'})} – ${fmtDate(days[6],{day:'numeric',month:'short',year:'numeric'})}`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// MONTH VIEW
+// ═══════════════════════════════════════════════════════════
+
+function renderMonth() {
+  const year  = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+  const today = isoDate(new Date());
+  const dayNames = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+
+  let start = new Date(year, month, 1);
+  const fd  = start.getDay();
+  start.setDate(start.getDate() + (fd === 0 ? -6 : 1 - fd));
+
+  let html = `<div class="month-grid"><div class="month-header">`;
+  dayNames.forEach(n => html += `<div class="month-header-cell">${n}</div>`);
+  html += `</div><div class="month-body">`;
+
+  let d = new Date(start);
+  for (let w = 0; w < 6; w++) {
+    let anyInMonth = false;
+    for (let i = 0; i < 7; i++) {
+      if (d.getMonth() === month) anyInMonth = true;
+      const isOther  = d.getMonth() !== month;
+      const isToday  = isoDate(d) === today;
+      const isWkEnd  = (d.getDay() === 0 || d.getDay() === 6);
+      const evs      = getAllEventsForDate(d);
+      const ds       = isoDate(d);
+      const numHtml  = isToday
+        ? `<div class="today-badge">${d.getDate()}</div>`
+        : `${d.getDate()}.`;
+      html += `<div class="month-day${isOther?' other-month':''}${isToday?' today-day':isWkEnd?' weekend-day':''}" data-date="${ds}" onclick="openAddEvent('${ds}',null,event)">
+        <div class="month-day-num">${numHtml}</div>`;
+      evs.slice(0,4).forEach(ev => html += chipHtml(ev, true));
+      if (evs.length > 4) html += `<div class="month-more">+${evs.length-4} mehr</div>`;
+      html += '</div>';
+      d.setDate(d.getDate()+1);
+    }
+    if (w >= 4 && !anyInMonth) break;
+  }
+  html += '</div></div>';
+  document.getElementById('calendar').innerHTML = html;
+  document.getElementById('periodLabel').textContent =
+    fmtDate(new Date(year, month, 1), {month:'long', year:'numeric'});
+}
+
+// ═══════════════════════════════════════════════════════════
+// NAVIGATION & VIEW
+// ═══════════════════════════════════════════════════════════
+
+function navigate(dir) {
+  if (currentView === 'week') currentDate = addDays(currentDate, dir*7);
+  else currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth()+dir, 1);
+  render();
+}
+function setView(v) {
+  currentView = v;
+  document.getElementById('btnWeek').classList.toggle('active', v==='week');
+  document.getElementById('btnMonth').classList.toggle('active', v==='month');
+  render();
+}
+function render() {
+  renderLegend();
+  currentView === 'week' ? renderWeek() : renderMonth();
+}
+
+// ═══════════════════════════════════════════════════════════
+// MODAL
+// ═══════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════
+// RECURRENCE HINT
+// ═══════════════════════════════════════════════════════════
+
+const DOW_DE = ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
+const NTH_DE = ['','ersten','zweiten','dritten','vierten'];
+
+function updateRecurrenceHint() {
+  const rec  = document.getElementById('fRecurrence').value;
+  const ds   = document.getElementById('fDate').value;
+  const hint = document.getElementById('recurrenceHint');
+  if (!ds || rec === 'none') { hint.textContent = ''; return; }
+  const d   = parseDate(ds);
+  const dow = DOW_DE[d.getDay()];
+  if (rec === 'weekly') {
+    hint.textContent = `↻ Jeden ${dow}`;
+  } else if (rec.startsWith('monthly-')) {
+    const n = +rec.split('-')[1];
+    hint.textContent = `↻ Jeden ${NTH_DE[n]} ${dow} im Monat`;
+  }
+}
+
+function openAddEvent(dateStr, room, e) {
+  if (e) e.stopPropagation();
+  editingId = null;
+  document.getElementById('modalTitle').textContent = 'Termin hinzufügen';
+  document.getElementById('btnDelete').style.display = 'none';
+  document.getElementById('fTitle').value    = '';
+  document.getElementById('fRoom').value     = room || 'Saal';
+  document.getElementById('fStart').value    = '09:00';
+  document.getElementById('fEnd').value      = '12:00';
+  document.getElementById('fDate').value     = dateStr || isoDate(new Date());
+  document.getElementById('fRecurrence').value = 'none';
+  document.getElementById('fColor').value    = '#3498db';
+  document.getElementById('fNote').value     = '';
+  document.getElementById('fPrice').value    = '';
+  document.getElementById('modalOverlay').classList.add('open');
+  updateRecurrenceHint();
+  setTimeout(() => document.getElementById('fTitle').focus(), 50);
+}
+function openEditEvent(id, e) {
+  if (e) e.stopPropagation();
+  const ev = customEvents.find(x => x.id === id);
+  if (!ev) return;
+  editingId = id;
+  // Store the date of the clicked chip so we can delete just that occurrence
+  editingDate = e ? getChipDate(e) : null;
+  document.getElementById('modalTitle').textContent = 'Termin bearbeiten';
+  document.getElementById('btnDelete').style.display = 'block';
+  document.getElementById('fTitle').value      = ev.title;
+  document.getElementById('fRoom').value       = ev.room;
+  document.getElementById('fStart').value      = ev.start;
+  document.getElementById('fEnd').value        = ev.end;
+  document.getElementById('fDate').value       = ev.date;
+  document.getElementById('fRecurrence').value = ev.recurrence;
+  document.getElementById('fColor').value      = ev.color;
+  document.getElementById('fNote').value       = ev.note  || '';
+  document.getElementById('fPrice').value      = ev.price || '';
+  document.getElementById('modalOverlay').classList.add('open');
+  updateRecurrenceHint();
+}
+
+// Extract date from a chip's parent day-cell
+function getChipDate(e) {
+  let el = e.target;
+  while (el && !el.dataset.date) el = el.parentElement;
+  return el ? el.dataset.date : null;
+}
+function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
+function closeModalOnBg(e) { if (e.target.id === 'modalOverlay') closeModal(); }
+
+async function saveEvent() {
+  const title = document.getElementById('fTitle').value.trim() || 'Termin';
+  const ev = {
+    id:         editingId || ('c_' + Date.now()),
+    title,
+    room:       document.getElementById('fRoom').value,
+    start:      document.getElementById('fStart').value,
+    end:        document.getElementById('fEnd').value,
+    date:       document.getElementById('fDate').value,
+    recurrence: document.getElementById('fRecurrence').value,
+    color:      document.getElementById('fColor').value,
+    note:       document.getElementById('fNote').value.trim(),
+    price:      document.getElementById('fPrice').value.trim(),
+    exceptions: editingId ? (customEvents.find(x=>x.id===editingId)?.exceptions||[]) : [],
+  };
+  if (editingId) {
+    const idx = customEvents.findIndex(x => x.id === editingId);
+    if (idx >= 0) customEvents[idx] = ev; else customEvents.push(ev);
+  } else {
+    customEvents.push(ev);
+  }
+  await persistEvent(ev);
+  closeModal();
+  render();
+  showToast(`✓ "${title}" gespeichert`);
+}
+function deleteEvent() {
+  const ev = customEvents.find(x => x.id === editingId);
+  if (!ev) return;
+  if (ev.recurrence !== 'none') {
+    // Show choice dialog
+    closeModal();
+    const desc = document.getElementById('delDesc');
+    desc.textContent = `"${ev.title}" ist ein wiederkehrender Termin. Was möchtest du löschen?`;
+    document.getElementById('delDialog').classList.add('open');
+  } else {
+    // Single event – delete directly
+    customEvents = customEvents.filter(x => x.id !== editingId);
+    removeEvent(editingId);
+    closeModal();
+    render();
+    showToast(`🗑 "${ev.title}" gelöscht`);
+  }
+}
+
+async function confirmDelete(mode) {
+  const ev = customEvents.find(x => x.id === editingId);
+  if (!ev) { closeDelDialog(); return; }
+  if (mode === 'all') {
+    customEvents = customEvents.filter(x => x.id !== editingId);
+    await removeEvent(editingId);
+    showToast(`🗑 Ganze Serie "${ev.title}" gelöscht`);
+  } else {
+    // Only this occurrence: add date to exceptions
+    const dateToExclude = editingDate || isoDate(new Date());
+    if (!ev.exceptions) ev.exceptions = [];
+    if (!ev.exceptions.includes(dateToExclude)) ev.exceptions.push(dateToExclude);
+    await persistEvent(ev);
+    showToast(`🗑 Termin am ${dateToExclude} gelöscht`);
+  }
+  closeDelDialog();
+  render();
+}
+
+function closeDelDialog() {
+  document.getElementById('delDialog').classList.remove('open');
+}
+
+// ═══════════════════════════════════════════════════════════
+// EMAIL
+// ═══════════════════════════════════════════════════════════
+
+function sendEmail() {
+  let body = 'Belegungsplan – Brunnmattstrasse 50\n';
+  body += '='.repeat(40) + '\n\n';
+  if (currentView === 'week') {
+    const ws   = weekStart(currentDate);
+    const days = Array.from({length:7}, (_,i) => addDays(ws,i));
+    const dNames = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+    body += `Woche: ${fmtDate(days[0],{day:'2-digit',month:'2-digit'})} – ${fmtDate(days[6],{day:'2-digit',month:'2-digit',year:'numeric'})}\n\n`;
+    days.forEach((d,i) => {
+      const evs = getAllEventsForDate(d);
+      if (evs.length) {
+        body += `${dNames[i]} ${d.getDate()}.${d.getMonth()+1}.${d.getFullYear()}:\n`;
+        evs.forEach(ev => body += `  • ${ev.room}: ${ev.title} – ${ev.start}–${ev.end}${ev.price?' ('+ev.price+')':''}\n`);
+        body += '\n';
+      }
+    });
+  } else {
+    const year = currentDate.getFullYear(), month = currentDate.getMonth();
+    body += `Monat: ${fmtDate(currentDate,{month:'long',year:'numeric'})}\n\n`;
+    for (let day = 1; day <= new Date(year,month+1,0).getDate(); day++) {
+      const d = new Date(year,month,day);
+      const evs = getAllEventsForDate(d);
+      if (evs.length) {
+        body += `${day}.${month+1}.${year}:\n`;
+        evs.forEach(ev => body += `  • ${ev.room}: ${ev.title} – ${ev.start}–${ev.end}${ev.price?' ('+ev.price+')':''}\n`);
+        body += '\n';
+      }
+    }
+  }
+  body += '\nGeneriert von Belegungsplan Brunnmattstrasse 50';
+  const sub = encodeURIComponent('Belegungsplan Brunnmattstrasse 50');
+  window.location.href = `mailto:?subject=${sub}&body=${encodeURIComponent(body)}`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════════════════════
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ═══════════════════════════════════════════════════════════
+// KEYBOARD
+// ═══════════════════════════════════════════════════════════
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeModal(); closeDelDialog(); }
+  if (e.key === 'ArrowLeft'  && !document.getElementById('modalOverlay').classList.contains('open')) navigate(-1);
+  if (e.key === 'ArrowRight' && !document.getElementById('modalOverlay').classList.contains('open')) navigate(1);
+});
+
+// ═══════════════════════════════════════════════════════════
+// FIRESTORE EVENT CRUD
+// ═══════════════════════════════════════════════════════════
+
+const FS_COLLECTION = 'belegung_events';
+
+async function loadEvents() {
+  if (!window._fbDb) return;
+  try {
+    // Check seed version doc
+    const vSnap = await window._fbGetDocs(
+      window._fbCol(window._fbDb, '_meta')
+    );
+    const vDoc = vSnap.docs.find(d => d.id === 'seed');
+    const currentVer = vDoc?.data()?.version;
+
+    const snap = await window._fbGetDocs(window._fbCol(window._fbDb, FS_COLLECTION));
+
+    if (snap.empty || currentVer !== SEED_VERSION) {
+      // Delete old seeded events (keep user-added ones with id starting 'c_')
+      for (const d of snap.docs) {
+        if (!d.id.startsWith('c_')) {
+          await window._fbDeleteDoc(window._fbDoc(window._fbDb, FS_COLLECTION, d.id));
+        }
+      }
+      // Write fresh seed events
+      const seeds = buildSeedEvents();
+      for (const ev of seeds)
+        await window._fbSetDoc(window._fbDoc(window._fbDb, FS_COLLECTION, ev.id), ev);
+      // Save version
+      await window._fbSetDoc(window._fbDoc(window._fbDb, '_meta', 'seed'), { version: SEED_VERSION });
+      // Reload all (includes user-added c_ events that survived)
+      const fresh = await window._fbGetDocs(window._fbCol(window._fbDb, FS_COLLECTION));
+      customEvents = fresh.docs.map(d => ({ ...d.data(), id: d.id }));
+    } else {
+      customEvents = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+    }
+  } catch(e) {
+    console.warn('Firestore loadEvents:', e);
+    const stored = localStorage.getItem('belegung_v2');
+    const ver = localStorage.getItem('belegung_seed_ver');
+    if (!stored || ver !== SEED_VERSION) {
+      customEvents = buildSeedEvents();
+      localStorage.setItem('belegung_v2', JSON.stringify(customEvents));
+      localStorage.setItem('belegung_seed_ver', SEED_VERSION);
+    } else {
+      customEvents = JSON.parse(stored);
+    }
+  }
+}
+
+async function persistEvent(ev) {
+  if (window._fbDb) {
+    try {
+      await window._fbSetDoc(window._fbDoc(window._fbDb, FS_COLLECTION, ev.id), ev);
+      return;
+    } catch(e) { console.warn('Firestore save:', e); }
+  }
+  localStorage.setItem('belegung_v2', JSON.stringify(customEvents));
+}
+
+async function removeEvent(id) {
+  if (window._fbDb) {
+    try {
+      await window._fbDeleteDoc(window._fbDoc(window._fbDb, FS_COLLECTION, id));
+      return;
+    } catch(e) { console.warn('Firestore delete:', e); }
+  }
+  localStorage.setItem('belegung_v2', JSON.stringify(customEvents));
+}
+
+// ═══════════════════════════════════════════════════════════
+// AUTH
+// ═══════════════════════════════════════════════════════════
+
+async function doLogin() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const pw    = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('loginError');
+  errEl.textContent = '';
+  if (!email || !pw) { errEl.textContent = 'Bitte E-Mail und Passwort eingeben.'; return; }
+  if (!window._fbAuth) { errEl.textContent = 'Firebase noch nicht konfiguriert.'; return; }
+  try {
+    await window._fbSignIn(window._fbAuth, email, pw);
+    // onAuthStateChanged handles the rest
+  } catch (e) {
+    const msgs = {
+      'auth/invalid-credential':       'E-Mail oder Passwort falsch.',
+      'auth/user-not-found':           'Kein Konto mit dieser E-Mail.',
+      'auth/wrong-password':           'Passwort falsch.',
+      'auth/too-many-requests':        'Zu viele Versuche. Bitte warte kurz.',
+      'auth/invalid-email':            'Ungültige E-Mail-Adresse.',
+    };
+    errEl.textContent = msgs[e.code] || ('Fehler: ' + e.message);
+  }
+}
+
+async function doLogout() {
+  if (window._fbAuth) await window._fbSignOut(window._fbAuth);
+}
+
+// ═══════════════════════════════════════════════════════════
+// INIT (render called by Firebase onAuthStateChanged)
+// ═══════════════════════════════════════════════════════════
+
+// Fallback for local file:// testing
+if (window.location.protocol === 'file:') {
+  const stored = localStorage.getItem('belegung_v2');
+  const ver    = localStorage.getItem('belegung_seed_ver');
+  if (!stored || ver !== SEED_VERSION) {
+    customEvents = buildSeedEvents();
+    localStorage.setItem('belegung_v2', JSON.stringify(customEvents));
+    localStorage.setItem('belegung_seed_ver', SEED_VERSION);
+  } else {
+    try { customEvents = JSON.parse(stored); } catch(_) { customEvents = buildSeedEvents(); }
+  }
+  document.getElementById('loginOverlay').style.display = 'none';
+  document.getElementById('appShell').style.display     = 'block';
+  render();
+}
+</script>
+</body>
+</html>
