@@ -736,7 +736,7 @@ const TEMPLATES = [
 
 // All events – seeded from TEMPLATES into Firestore on first load, then editable
 let customEvents = [];
-const SEED_VERSION = '7'; // bump this when seed data changes to force re-seed
+const SEED_VERSION = '8'; // bump this when seed data changes to force re-seed
 
 // Thai Gemeinde specific dates 2026 (Gemeinschaftsraum + Küche, 10:00–17:00)
 function buildThaiEvents() {
@@ -762,6 +762,9 @@ function buildThaiEvents() {
 function buildJungschiEvents() {
   const JUNGSCHI_COLOR = '#16a085';
   const dates = [
+    // 2026
+    '2026-08-15','2026-08-29','2026-09-12','2026-10-24',
+    '2026-11-07','2026-11-21','2026-12-05','2026-12-19',
     // 2027
     '2027-01-16','2027-01-30','2027-02-27','2027-03-13','2027-03-27',
     '2027-04-03','2027-05-01','2027-05-15','2027-05-29','2027-06-12','2027-06-26',
@@ -778,18 +781,11 @@ function buildJungschiEvents() {
     '2029-08-18','2029-09-01','2029-09-15','2029-10-20',
     '2029-11-03','2029-11-17','2029-12-01','2029-12-15',
   ];
-  const evs = dates.map((d, i) => ({
-    id: `jungschi_${d}`,
-    title: 'Jungschi',
-    room: 'Saal',
-    start: '12:00', end: '17:00',
-    date: d,
-    recurrence: 'none',
-    color: JUNGSCHI_COLOR,
-    note: '',
-    price: '',
-    exceptions: []
-  }));
+  const evs = [];
+  dates.forEach(d => {
+    evs.push({ id:`jungschi_${d}_a`, title:'Jungschi', room:'Gemeinschaftsraum,Küche', start:'12:00', end:'13:30', date:d, recurrence:'none', color:JUNGSCHI_COLOR, note:'', price:'', exceptions:[] });
+    evs.push({ id:`jungschi_${d}_b`, title:'Jungschi', room:'Park', start:'13:30', end:'17:00', date:d, recurrence:'none', color:JUNGSCHI_COLOR, note:'', price:'', exceptions:[] });
+  });
   return evs;
 }
 
