@@ -547,12 +547,15 @@ button {
       <button class="view-btn"        id="btnMonth" onclick="setView('month')">Monat</button>
     </div>
     <div class="action-group">
+      <input id="searchBox" type="search" placeholder="Suchen..." autocomplete="off" oninput="doSearch(this.value)" onblur="setTimeout(function(){var p=document.getElementById('searchResults');if(p)p.style.display='none';},200)" style="padding:6px 10px;border-radius:8px;border:1px solid #b9c2cc;font-size:0.9rem;min-width:170px;margin-right:6px">
       <button class="action-btn" onclick="window.print()" title="Drucken / Als PDF speichern">🖨️ Drucken</button>
       <button class="action-btn" onclick="sendEmail()"    title="Aktuellen Plan mailen">📧 Mailen</button>
       <button class="action-btn primary" onclick="openAddEvent(null,null,null)">＋ Termin</button>
     </div>
   </div>
 </header>
+
+<div id="searchResults" style="display:none;position:fixed;top:118px;right:16px;width:min(560px,92vw);max-height:64vh;overflow:auto;background:#fff;border:1px solid #d0d0d0;border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,0.18);z-index:2000;padding:6px"></div>
 
 <div id="legend">
   <span class="legend-label">Gruppen:</span>
@@ -712,31 +715,13 @@ const TEMPLATES = [
     color: GROUP_COLORS['VBG'],
     note:'1. Freitag im Monat · Gemeinschaftsraum + Küche · 50 CHF'
   },
-  // 1. Samstag im Monat – ab August 2026
-  {
-    id:'t6', title:'Teens / Preteens',
-    rooms:['Saal','Gemeinschaftsraum','Küche','Park'],
-    dayOfWeek:6, start:'18:00', end:'22:00',
-    recurrence:'monthly-1',
-    color:'#e67e22',
-    note:'1. Samstag im Monat · alle Räume'
-  },
-  // 3. Samstag im Monat – ab August 2026
-  {
-    id:'t7', title:'Teens / Preteens',
-    rooms:['Saal','Gemeinschaftsraum','Küche','Park'],
-    dayOfWeek:6, start:'18:00', end:'22:00',
-    recurrence:'monthly-3',
-    color:'#e67e22',
-    note:'3. Samstag im Monat · alle Räume'
-  },
   // Thai: 6x/Jahr – specific dates must be added manually as one-off events
   // Araber Gemeinde: unregelmässig – add manually
 ];
 
 // All events – seeded from TEMPLATES into Firestore on first load, then editable
 let customEvents = [];
-const SEED_VERSION = '8'; // bump this when seed data changes to force re-seed
+const SEED_VERSION = '9'; // bump this when seed data changes to force re-seed
 
 // Thai Gemeinde specific dates 2026 (Gemeinschaftsraum + Küche, 10:00–17:00)
 function buildThaiEvents() {
@@ -790,12 +775,37 @@ function buildJungschiEvents() {
 }
 
 // Convert TEMPLATES to Firestore-compatible format
+function buildTeensEvents() {
+  const TEENS_COLOR = '#e67e22';
+  const allRooms = 'Saal,Gemeinschaftsraum,Küche,Park';
+  // Reguläre Teens/Preteens-Abende – exakte Daten (1./3. Samstag, exkl. Schulferien)
+  const dates = [
+    // 2026
+    '2026-10-17','2026-11-07','2026-11-21','2026-12-05','2026-12-19',
+    // 2027
+    '2027-01-16','2027-01-30','2027-02-20','2027-03-06','2027-03-20',
+    '2027-04-03','2027-05-01','2027-05-15','2027-06-05','2027-06-19',
+  ];
+  const evs = dates.map(d => ({
+    id: `teens_${d}`, title:'Teens / Preteens', room: allRooms,
+    start:'18:00', end:'22:00', date:d, recurrence:'none',
+    color:TEENS_COLOR, note:'', price:'', exceptions:[]
+  }));
+  // Kickoff
+  evs.push({ id:'teens_kickoff_2026-09-12', title:'Teens / Preteens', room: allRooms,
+    start:'18:30', end:'21:30', date:'2026-09-12', recurrence:'none',
+    color:TEENS_COLOR, note:'Kickoff', price:'', exceptions:[] });
+  // Elternabend – nur Gemeinschaftsraum
+  evs.push({ id:'teens_elternabend_2026-10-16', title:'Teens / Preteens', room:'Gemeinschaftsraum',
+    start:'20:00', end:'22:00', date:'2026-10-16', recurrence:'none',
+    color:TEENS_COLOR, note:'Elternabend', price:'', exceptions:[] });
+  return evs;
+}
+
 function buildSeedEvents() {
   const today = new Date(); today.setHours(0,0,0,0);
   const templateEvs = TEMPLATES.map(t => {
     // Teens/Preteens start August 2026 — use fixed base dates
-    if (t.id === 't6') return { id:'t6', title:t.title, room:t.rooms.join(','), start:t.start, end:t.end, date:'2026-08-01', recurrence:t.recurrence, color:t.color, note:t.note||'', price:'', exceptions:[] };
-    if (t.id === 't7') return { id:'t7', title:t.title, room:t.rooms.join(','), start:t.start, end:t.end, date:'2026-08-15', recurrence:t.recurrence, color:t.color, note:t.note||'', price:'', exceptions:[] };
     const d = new Date(today);
     while (d.getDay() !== t.dayOfWeek) d.setDate(d.getDate() - 1);
     return {
@@ -811,7 +821,7 @@ function buildSeedEvents() {
       exceptions: []
     };
   });
-  return [...templateEvs, ...buildThaiEvents(), ...buildJungschiEvents()];
+  return [...templateEvs, ...buildThaiEvents(), ...buildJungschiEvents(), ...buildTeensEvents()];
 }
 
 let editingId   = null;
@@ -901,9 +911,118 @@ function renderLegend() {
   const el = document.getElementById('legend');
   el.innerHTML = '<span class="legend-label">Gruppen:</span>';
   for (const [name, color] of Object.entries(colors))
-    el.innerHTML += `<div class="legend-item"><div class="legend-dot" style="background:${color}"></div><span>${name}</span></div>`;
+    el.innerHTML += `<div class="legend-item" onclick="exportGroupPdf('${name}')" style="cursor:pointer" title="Alle Termine von ${name} als PDF"><div class="legend-dot" style="background:${color}"></div><span>${name}</span> 📄</div>`;
   el.innerHTML += `<div class="legend-item" style="margin-left:auto;color:#aaa;font-size:0.72rem">Klick auf freie Zelle = Termin hinzufügen</div>`;
 }
+
+// ═══════════════════════════════════════════════════════════
+// SUCHE & GRUPPEN-PDF  (Zusatzfunktionen)
+// ═══════════════════════════════════════════════════════════
+let _occIndex = null, _occLen = -1;
+const _WD_SHORT = ['So','Mo','Di','Mi','Do','Fr','Sa'];
+const _WD_LONG  = ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
+function _fmtDE(d){ return String(d.getDate()).padStart(2,'0')+'.'+String(d.getMonth()+1).padStart(2,'0')+'.'+d.getFullYear(); }
+
+function _collectOccurrences(filterFn){
+  const out = [];
+  const start = new Date(); start.setHours(0,0,0,0);
+  const end = new Date(2029,11,31);
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate()+1)){
+    for (const ev of customEvents){
+      if (filterFn(ev) && customOccursOn(ev, d)){
+        out.push({ y:d.getFullYear(), m:d.getMonth(), day:d.getDate(), t:d.getTime(),
+          wdS:_WD_SHORT[d.getDay()], wdL:_WD_LONG[d.getDay()], date:_fmtDE(d),
+          start:ev.start, end:ev.end, room:(ev.room||'').split(',').join(', '),
+          title:ev.title, note:ev.note||'', color:ev.color });
+      }
+    }
+  }
+  out.sort((a,b)=>a.t-b.t);
+  return out;
+}
+
+function doSearch(q){
+  const panel = document.getElementById('searchResults');
+  q = (q||'').trim().toLowerCase();
+  if (q.length < 2){ panel.style.display='none'; panel.innerHTML=''; return; }
+  if (!_occIndex || _occLen !== customEvents.length){ _occIndex = _collectOccurrences(function(){return true;}); _occLen = customEvents.length; }
+  const hits = _occIndex.filter(function(o){ return (o.title+' '+o.note+' '+o.room).toLowerCase().indexOf(q) !== -1; });
+  const shown = hits.slice(0,80);
+  if (!shown.length){ panel.innerHTML = '<div style="padding:10px;color:#888;font-size:0.85rem">Keine Treffer</div>'; panel.style.display='block'; return; }
+  panel.innerHTML = '<div style="padding:6px 10px;color:#888;font-size:0.72rem">'+hits.length+' Treffer'+(hits.length>shown.length?' (erste '+shown.length+')':'')+'</div>' +
+    shown.map(function(o){ return '<div onmousedown="gotoDate('+o.y+','+o.m+','+o.day+')" onmouseover="this.style.background=\'#eef3f8\'" onmouseout="this.style.background=\'transparent\'" style="padding:8px 10px;border-radius:6px;cursor:pointer;font-size:0.84rem;color:#222;display:flex;gap:8px;align-items:center"><span style="flex:0 0 10px;height:10px;border-radius:50%;background:'+o.color+'"></span><span><b>'+o.wdS+' '+o.date+'</b> &middot; '+o.start+'&ndash;'+o.end+' &middot; '+o.room+' &middot; '+o.title+(o.note?' <span style="color:#888">('+o.note+')</span>':'')+'</span></div>'; }).join('');
+  panel.style.display='block';
+}
+
+function gotoDate(y,m,day){
+  currentDate = new Date(y,m,day); currentDate.setHours(0,0,0,0);
+  currentView = 'week';
+  var bw=document.getElementById('btnWeek'), bm=document.getElementById('btnMonth');
+  if(bw&&bm){ bw.classList.add('active'); bm.classList.remove('active'); }
+  var sb=document.getElementById('searchBox'); if(sb) sb.value='';
+  document.getElementById('searchResults').style.display='none';
+  render();
+}
+
+function _loadJsPdf(){
+  return new Promise(function(res,rej){
+    if (window.jspdf && window.jspdf.jsPDF) return res();
+    var s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    s.onload=res; s.onerror=rej; document.head.appendChild(s);
+  });
+}
+
+async function exportGroupPdf(name){
+  const rows = _collectOccurrences(function(ev){ return ev.title === name; });
+  if (!rows.length){ alert('Keine kuenftigen Termine fuer "'+name+'" gefunden.'); return; }
+  try{
+    await _loadJsPdf();
+    const jsPDF = window.jspdf.jsPDF;
+    const doc = new jsPDF({ unit:'pt', format:'a4' });
+    const pageW = doc.internal.pageSize.getWidth(), pageH = doc.internal.pageSize.getHeight();
+    const M = 48; let y = M;
+    doc.setFont('helvetica','bold'); doc.setFontSize(16);
+    doc.text(name + ' - Termine', M, y); y += 18;
+    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(120);
+    doc.text('Belegungsplan Brunnmattstrasse 50  -  ' + rows.length + ' Termine  -  ab ' + _fmtDE(new Date()) + ' bis 31.12.2029', M, y); y += 22;
+    doc.setTextColor(0);
+    function head(){
+      doc.setFont('helvetica','bold'); doc.setFontSize(10);
+      doc.text('Datum', M, y); doc.text('Zeit', M+175, y); doc.text('Raum', M+255, y);
+      y += 6; doc.setDrawColor(200); doc.line(M, y, pageW-M, y); y += 12;
+      doc.setFont('helvetica','normal');
+    }
+    head();
+    for (const r of rows){
+      if (y > pageH - M){ doc.addPage(); y = M; head(); }
+      doc.setFontSize(10);
+      doc.text(r.wdS + ' ' + r.date, M, y);
+      doc.text(r.start + '-' + r.end, M+175, y);
+      var txt = r.room + (r.note ? '  (' + r.note + ')' : '');
+      var fit = doc.splitTextToSize(txt, pageW - (M+255) - M);
+      doc.text(fit[0] || txt, M+255, y);
+      y += 15;
+    }
+    doc.save('Belegung_' + name.replace(/[^A-Za-z0-9]+/g,'_') + '.pdf');
+  } catch(e){
+    _printGroupList(name, rows);
+  }
+}
+
+function _printGroupList(name, rows){
+  var w = window.open('', '_blank');
+  if (!w){ alert('Bitte Popups erlauben, um die PDF-Liste zu erstellen.'); return; }
+  var html = '<html><head><title>'+name+' - Termine</title><meta charset="utf-8">' +
+    '<style>body{font-family:Arial,sans-serif;margin:32px;color:#222}h1{font-size:20px;margin-bottom:2px}p.sub{color:#777;font-size:12px;margin-top:0}table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #ddd}th{border-bottom:2px solid #888}</style></head><body>' +
+    '<h1>'+name+' &ndash; Termine</h1><p class="sub">Belegungsplan Brunnmattstrasse 50 &middot; '+rows.length+' Termine &middot; ab '+_fmtDE(new Date())+' bis 31.12.2029</p>' +
+    '<table><thead><tr><th>Datum</th><th>Zeit</th><th>Raum</th><th>Notiz</th></tr></thead><tbody>' +
+    rows.map(function(r){ return '<tr><td>'+r.wdL+', '+r.date+'</td><td>'+r.start+'&ndash;'+r.end+'</td><td>'+r.room+'</td><td>'+(r.note||'')+'</td></tr>'; }).join('') +
+    '</tbody></table></body></html>';
+  w.document.write(html); w.document.close(); w.focus();
+  setTimeout(function(){ w.print(); }, 300);
+}
+
 
 // ═══════════════════════════════════════════════════════════
 // CHIP HTML
