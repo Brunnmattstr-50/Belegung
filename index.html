@@ -670,6 +670,7 @@ const GROUP_COLORS = {
   'Araber Gemeinde':   '#c0392b',
   'Jungschi':          '#16a085',
   'Teens / Preteens':  '#e67e22',
+  'Zsuzsanne Falvai':  '#f1c40f',
 };
 
 // Built-in recurring templates (from meeting notes 23.3.26)
@@ -716,12 +717,50 @@ const TEMPLATES = [
     note:'1. Freitag im Monat · Gemeinschaftsraum + Küche · 50 CHF'
   },
   // Thai: 6x/Jahr – specific dates must be added manually as one-off events
-  // Araber Gemeinde: unregelmässig – add manually
+  // Araber Gemeinde & Zsuzsanne Falvai: siehe buildAraberEvents() / buildZsuzsanneEvents() unten
 ];
 
 // All events – seeded from TEMPLATES into Firestore on first load, then editable
 let customEvents = [];
-const SEED_VERSION = '11'; // bump this when seed data changes to force re-seed
+const SEED_VERSION = '12'; // bump this when seed data changes to force re-seed
+
+// Araber Gemeinde – Terminplan 2026 (Flyer Pastor Ekram Yawed, 13:00–18:00, Saal+Gemeinschaftsraum+Küche)
+function buildAraberEvents() {
+  const dates = [
+    '2026-01-31','2026-03-07','2026-04-11','2026-05-16','2026-06-13',
+    '2026-09-26','2026-10-17','2026-11-28','2026-12-12'
+  ];
+  return dates.map(d => ({
+    id: `araber_${d}`,
+    title: 'Araber Gemeinde',
+    room: 'Saal,Gemeinschaftsraum,Küche',
+    start: '13:00', end: '18:00',
+    date: d,
+    recurrence: 'none',
+    color: GROUP_COLORS['Araber Gemeinde'],
+    note: 'Ekram Yawed · Bern Termine',
+    price: '',
+    exceptions: []
+  }));
+}
+
+// Zsuzsanne Falvai – Saal-Reservation Oktober 2026 (Übung + Konzert, Reservationsbestätigung)
+function buildZsuzsanneEvents() {
+  return [
+    {
+      id:'zsuzsanne_2026-10-17', title:'Zsuzsanne Falvai (Übung)',
+      room:'Saal', start:'10:00', end:'14:00', date:'2026-10-17',
+      recurrence:'none', color: GROUP_COLORS['Zsuzsanne Falvai'],
+      note:'Reservationsbestätigung · Pauschale CHF 180.–', price:'', exceptions:[]
+    },
+    {
+      id:'zsuzsanne_2026-10-24', title:'Zsuzsanne Falvai (Konzert)',
+      room:'Saal', start:'12:00', end:'18:00', date:'2026-10-24',
+      recurrence:'none', color: GROUP_COLORS['Zsuzsanne Falvai'],
+      note:'Reservationsbestätigung · Pauschale CHF 180.– (korrigiert von 14–18 auf 12–18)', price:'', exceptions:[]
+    }
+  ];
+}
 
 // Thai Gemeinde specific dates 2026 (Gemeinschaftsraum + Küche, 10:00–17:00)
 function buildThaiEvents() {
@@ -820,7 +859,7 @@ function buildSeedEvents() {
       exceptions: []
     };
   });
-  return [...templateEvs, ...buildThaiEvents(), ...buildJungschiEvents(), ...buildTeensEvents()];
+  return [...templateEvs, ...buildAraberEvents(), ...buildZsuzsanneEvents(), ...buildThaiEvents(), ...buildJungschiEvents(), ...buildTeensEvents()];
 }
 
 let editingId   = null;
