@@ -579,6 +579,7 @@ button {
         <option value="Küche">Küche</option>
         <option value="Park">Park</option>
         <option value="Saal,Gemeinschaftsraum">Saal + Gemeinschaftsraum</option>
+        <option value="Saal,Gemeinschaftsraum,Küche">Saal + Gemeinschaftsraum + Küche</option>
         <option value="Saal,Gemeinschaftsraum,Küche,Park">Alle Räume</option>
       </select>
     </div>
@@ -722,7 +723,7 @@ const TEMPLATES = [
 
 // All events – seeded from TEMPLATES into Firestore on first load, then editable
 let customEvents = [];
-const SEED_VERSION = '12'; // bump this when seed data changes to force re-seed
+const SEED_VERSION = '14'; // bump this when seed data changes to force re-seed
 
 // Araber Gemeinde – Terminplan 2026 (Flyer Pastor Ekram Yawed, 13:00–18:00, Saal+Gemeinschaftsraum+Küche)
 function buildAraberEvents() {
@@ -730,11 +731,14 @@ function buildAraberEvents() {
     '2026-01-31','2026-03-07','2026-04-11','2026-05-16','2026-06-13',
     '2026-09-26','2026-10-17','2026-11-28','2026-12-12'
   ];
+  // Abweichende Startzeiten pro Datum (Default 13:00–18:00)
+  const overrides = { '2026-10-17': { start:'14:00', end:'18:00' } };
   return dates.map(d => ({
     id: `araber_${d}`,
     title: 'Araber Gemeinde',
     room: 'Saal,Gemeinschaftsraum,Küche',
-    start: '13:00', end: '18:00',
+    start: (overrides[d] && overrides[d].start) || '13:00',
+    end:   (overrides[d] && overrides[d].end)   || '18:00',
     date: d,
     recurrence: 'none',
     color: GROUP_COLORS['Araber Gemeinde'],
