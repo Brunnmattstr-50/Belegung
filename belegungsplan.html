@@ -550,6 +550,7 @@ button {
       <input id="searchBox" type="search" placeholder="Suchen..." autocomplete="off" oninput="doSearch(this.value)" onblur="setTimeout(function(){var p=document.getElementById('searchResults');if(p)p.style.display='none';},200)" style="padding:6px 10px;border-radius:8px;border:1px solid #b9c2cc;font-size:0.9rem;min-width:170px;margin-right:6px">
       <button class="action-btn" onclick="window.print()" title="Drucken / Als PDF speichern">🖨️ Drucken</button>
       <button class="action-btn" onclick="sendEmail()"    title="Aktuellen Plan mailen">📧 Mailen</button>
+      <button class="action-btn" onclick="openContactsModal()" title="Kontakte &amp; Gruppen verwalten">👤 Kontakte</button>
       <button class="action-btn primary" onclick="openAddEvent(null,null,null)">＋ Termin</button>
     </div>
   </div>
@@ -579,6 +580,7 @@ button {
         <option value="Küche">Küche</option>
         <option value="Park">Park</option>
         <option value="Saal,Gemeinschaftsraum">Saal + Gemeinschaftsraum</option>
+        <option value="Saal,Gemeinschaftsraum,Küche">Saal + Gemeinschaftsraum + Küche</option>
         <option value="Saal,Gemeinschaftsraum,Küche,Park">Alle Räume</option>
       </select>
     </div>
@@ -649,6 +651,18 @@ button {
   </div>
 </div>
 
+<!-- Kontakte / Gruppen verwalten -->
+<div class="modal-overlay" id="contactsOverlay" onclick="closeContactsOnBg(event)">
+  <div class="modal" style="width:640px">
+    <h2>👤 Kontakte &amp; Gruppen</h2>
+    <p style="font-size:0.78rem;color:#889;margin:-10px 0 14px">Ansprechperson, E-Mail und Telefon je Gruppe hinterlegen und direkt anschreiben. Mit 🙈 eine Gruppe aus der Legende oben ausblenden (Termine bleiben erhalten), mit 👁 wieder einblenden.</p>
+    <div id="contactsList" style="max-height:56vh;overflow:auto"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeContactsModal()">Schliessen</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 </div><!-- end #appShell -->
@@ -670,6 +684,7 @@ const GROUP_COLORS = {
   'Araber Gemeinde':   '#c0392b',
   'Jungschi':          '#16a085',
   'Teens / Preteens':  '#e67e22',
+  'Zsuzsanne Falvai':  '#f1c40f',
 };
 
 // Built-in recurring templates (from meeting notes 23.3.26)
@@ -716,12 +731,71 @@ const TEMPLATES = [
     note:'1. Freitag im Monat · Gemeinschaftsraum + Küche · 50 CHF'
   },
   // Thai: 6x/Jahr – specific dates must be added manually as one-off events
-  // Araber Gemeinde: unregelmässig – add manually
+  // Araber Gemeinde & Zsuzsanne Falvai: siehe buildAraberEvents() / buildZsuzsanneEvents() unten
 ];
 
 // All events – seeded from TEMPLATES into Firestore on first load, then editable
 let customEvents = [];
-const SEED_VERSION = '9'; // bump this when seed data changes to force re-seed
+const SEED_VERSION = '14'; // bump this when seed data changes to force re-seed
+
+// Group names hidden from the top legend (data/events stay intact, just decluttered)
+let hiddenGroups = [];
+// Per-group contact info: { [groupName]: { group, contact, email, phone } }
+let groupContacts = {};
+
+// Default contacts (Stand 19.8.26, von Ivan mitgeteilt). Diese füllen nur Lücken – ein Kontakt,
+// den jemand über das Kontakte-Panel bearbeitet und speichert (Firestore/localStorage), überschreibt
+// den jeweiligen Default dauerhaft (siehe Merge in loadExtras()).
+const DEFAULT_CONTACTS = {
+  'Araber Gemeinde':            { group:'Araber Gemeinde',            contact:'Ekramy Awed',    email:'pfr.ekramyawed@gmail.com',   phone:'' },
+  'Jungschi':                   { group:'Jungschi',                   contact:'Alex Ruf',       email:'alexander.ruf@gmx.ch',       phone:'' },
+  'Thai Gemeinde':               { group:'Thai Gemeinde',              contact:'Bee Thevoz',     email:'kanlaya.thevoz@omfmail.com', phone:'' },
+  'Immanuel Gemeinde':           { group:'Immanuel Gemeinde',          contact:'Christian Schmid', email:'cschmid@immanuelbern.ch',  phone:'' },
+  'Zsuzsanne Falvai':            { group:'Zsuzsanne Falvai',           contact:'Zsuzsanna Falvai (Geigenunterricht)', email:'falvaizsu@gmail.com', phone:'' },
+  'Zsuzsanne Falvai (Übung)':    { group:'Zsuzsanne Falvai (Übung)',   contact:'Zsuzsanna Falvai (Geigenunterricht)', email:'falvaizsu@gmail.com', phone:'' },
+  'Zsuzsanne Falvai (Konzert)':  { group:'Zsuzsanne Falvai (Konzert)', contact:'Zsuzsanna Falvai (Geigenunterricht)', email:'falvaizsu@gmail.com', phone:'' },
+};
+
+// Araber Gemeinde – Terminplan 2026 (Flyer Pastor Ekram Yawed, 13:00–18:00, Saal+Gemeinschaftsraum+Küche)
+function buildAraberEvents() {
+  const dates = [
+    '2026-01-31','2026-03-07','2026-04-11','2026-05-16','2026-06-13',
+    '2026-09-26','2026-10-17','2026-11-28','2026-12-12'
+  ];
+  // Abweichende Startzeiten pro Datum (Default 13:00–18:00)
+  const overrides = { '2026-10-17': { start:'14:00', end:'18:00' } };
+  return dates.map(d => ({
+    id: `araber_${d}`,
+    title: 'Araber Gemeinde',
+    room: 'Saal,Gemeinschaftsraum,Küche',
+    start: (overrides[d] && overrides[d].start) || '13:00',
+    end:   (overrides[d] && overrides[d].end)   || '18:00',
+    date: d,
+    recurrence: 'none',
+    color: GROUP_COLORS['Araber Gemeinde'],
+    note: 'Ekram Yawed · Bern Termine',
+    price: '',
+    exceptions: []
+  }));
+}
+
+// Zsuzsanne Falvai – Saal-Reservation Oktober 2026 (Übung + Konzert, Reservationsbestätigung)
+function buildZsuzsanneEvents() {
+  return [
+    {
+      id:'zsuzsanne_2026-10-17', title:'Zsuzsanne Falvai (Übung)',
+      room:'Saal', start:'10:00', end:'14:00', date:'2026-10-17',
+      recurrence:'none', color: GROUP_COLORS['Zsuzsanne Falvai'],
+      note:'Reservationsbestätigung · Pauschale CHF 180.–', price:'', exceptions:[]
+    },
+    {
+      id:'zsuzsanne_2026-10-24', title:'Zsuzsanne Falvai (Konzert)',
+      room:'Saal', start:'12:00', end:'18:00', date:'2026-10-24',
+      recurrence:'none', color: GROUP_COLORS['Zsuzsanne Falvai'],
+      note:'Reservationsbestätigung · Pauschale CHF 180.– (korrigiert von 14–18 auf 12–18)', price:'', exceptions:[]
+    }
+  ];
+}
 
 // Thai Gemeinde specific dates 2026 (Gemeinschaftsraum + Küche, 10:00–17:00)
 function buildThaiEvents() {
@@ -768,8 +842,7 @@ function buildJungschiEvents() {
   ];
   const evs = [];
   dates.forEach(d => {
-    evs.push({ id:`jungschi_${d}_a`, title:'Jungschi', room:'Gemeinschaftsraum,Küche', start:'12:00', end:'13:30', date:d, recurrence:'none', color:JUNGSCHI_COLOR, note:'', price:'', exceptions:[] });
-    evs.push({ id:`jungschi_${d}_b`, title:'Jungschi', room:'Park', start:'13:30', end:'17:00', date:d, recurrence:'none', color:JUNGSCHI_COLOR, note:'', price:'', exceptions:[] });
+    evs.push({ id:`jungschi_${d}`, title:'Jungschi', room:'Gemeinschaftsraum,Küche,Park', start:'10:00', end:'17:00', date:d, recurrence:'none', color:JUNGSCHI_COLOR, note:'', price:'', exceptions:[] });
   });
   return evs;
 }
@@ -821,7 +894,7 @@ function buildSeedEvents() {
       exceptions: []
     };
   });
-  return [...templateEvs, ...buildThaiEvents(), ...buildJungschiEvents(), ...buildTeensEvents()];
+  return [...templateEvs, ...buildAraberEvents(), ...buildZsuzsanneEvents(), ...buildThaiEvents(), ...buildJungschiEvents(), ...buildTeensEvents()];
 }
 
 let editingId   = null;
@@ -905,14 +978,124 @@ function getAllEventsForDate(date) {
 // LEGEND
 // ═══════════════════════════════════════════════════════════
 
+function esc(s) { return String(s).replace(/'/g, "\\'"); }
+
 function renderLegend() {
   const colors = { ...GROUP_COLORS };
   customEvents.forEach(e => { colors[e.title] = colors[e.title] || e.color; });
   const el = document.getElementById('legend');
   el.innerHTML = '<span class="legend-label">Gruppen:</span>';
-  for (const [name, color] of Object.entries(colors))
-    el.innerHTML += `<div class="legend-item" onclick="exportGroupPdf('${name}')" style="cursor:pointer" title="Alle Termine von ${name} als PDF"><div class="legend-dot" style="background:${color}"></div><span>${name}</span> 📄</div>`;
+  for (const [name, color] of Object.entries(colors)) {
+    if (hiddenGroups.includes(name)) continue;
+    const c = groupContacts[name];
+    const hasEmail = c && c.email;
+    const n = esc(name);
+    el.innerHTML += `<div class="legend-item">
+      <div class="legend-dot" style="background:${color}"></div>
+      <span onclick="exportGroupPdf('${n}')" style="cursor:pointer" title="Alle Termine von ${name} als PDF">${name}</span>
+      <span onclick="exportGroupPdf('${n}')" style="cursor:pointer" title="Alle Termine von ${name} als PDF">📄</span>
+      <span onclick="quickEmailGroup('${n}')" style="cursor:pointer;${hasEmail?'':'opacity:.35'}" title="${hasEmail ? 'E-Mail an '+c.email : 'Keine E-Mail hinterlegt – Kontakte öffnen'}">✉️</span>
+      <span onclick="hideGroup('${n}')" style="cursor:pointer;color:#c0392b;font-weight:700;padding-left:2px" title="Gruppe '${name}' aus der Legende ausblenden">×</span>
+    </div>`;
+  }
   el.innerHTML += `<div class="legend-item" style="margin-left:auto;color:#aaa;font-size:0.72rem">Klick auf freie Zelle = Termin hinzufügen</div>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// GRUPPEN AUS-/EINBLENDEN & KONTAKTE
+// ═══════════════════════════════════════════════════════════
+
+function allGroupNames() {
+  const names = new Set(Object.keys(GROUP_COLORS));
+  customEvents.forEach(e => names.add(e.title));
+  Object.keys(groupContacts).forEach(n => names.add(n));
+  return Array.from(names).sort((a,b) => a.localeCompare(b, 'de'));
+}
+
+async function persistHiddenGroups() {
+  if (window._fbDb) {
+    try { await window._fbSetDoc(window._fbDoc(window._fbDb, '_meta', 'hiddenGroups'), { names: hiddenGroups }); return; }
+    catch(e) { console.warn('Firestore hiddenGroups:', e); }
+  }
+  localStorage.setItem('belegung_hidden', JSON.stringify(hiddenGroups));
+}
+
+async function hideGroup(name) {
+  if (!confirm(`"${name}" aus der Legende ausblenden?\n\nDie Termine bleiben im Kalender erhalten – du kannst die Gruppe jederzeit über "👤 Kontakte" wieder einblenden.`)) return;
+  if (!hiddenGroups.includes(name)) hiddenGroups.push(name);
+  await persistHiddenGroups();
+  render();
+  if (document.getElementById('contactsOverlay').classList.contains('open')) renderContactsList();
+  showToast(`Gruppe "${name}" ausgeblendet`);
+}
+
+async function showGroup(name) {
+  hiddenGroups = hiddenGroups.filter(n => n !== name);
+  await persistHiddenGroups();
+  render();
+  if (document.getElementById('contactsOverlay').classList.contains('open')) renderContactsList();
+  showToast(`Gruppe "${name}" wieder eingeblendet`);
+}
+
+async function persistContact(name) {
+  const c = groupContacts[name];
+  if (window._fbDb) {
+    try { await window._fbSetDoc(window._fbDoc(window._fbDb, 'belegung_contacts', slugify(name)), c); return; }
+    catch(e) { console.warn('Firestore contact save:', e); }
+  }
+  localStorage.setItem('belegung_contacts', JSON.stringify(groupContacts));
+}
+
+function slugify(s) {
+  return String(s).normalize('NFKD').replace(/[̀-ͯ]/g,'').replace(/[^A-Za-z0-9]+/g,'_').toLowerCase() || 'g';
+}
+
+let _contactSaveTimers = {};
+function updateContactField(name, field, value) {
+  const c = groupContacts[name] || { group: name, contact:'', email:'', phone:'' };
+  c[field] = value;
+  c.group = name;
+  groupContacts[name] = c;
+  clearTimeout(_contactSaveTimers[name]);
+  _contactSaveTimers[name] = setTimeout(() => persistContact(name), 500);
+  // Keep the legend's mail icon and this row's send button in sync without a full re-render
+  if (field === 'email') {
+    renderLegend();
+    const btn = document.querySelector(`#contactsList button[data-mailbtn="${CSS.escape(name)}"]`);
+    if (btn) btn.disabled = !value.trim();
+  }
+}
+
+function quickEmailGroup(name) {
+  const c = groupContacts[name];
+  if (!c || !c.email) { openContactsModal(); showToast('Bitte zuerst E-Mail-Adresse hinterlegen'); return; }
+  const sub = encodeURIComponent('Belegungsplan Brunnmattstrasse 50 – ' + name);
+  window.location.href = `mailto:${encodeURIComponent(c.email)}?subject=${sub}`;
+}
+
+function openContactsModal() {
+  renderContactsList();
+  document.getElementById('contactsOverlay').classList.add('open');
+}
+function closeContactsModal() { document.getElementById('contactsOverlay').classList.remove('open'); }
+function closeContactsOnBg(e) { if (e.target.id === 'contactsOverlay') closeContactsModal(); }
+
+function renderContactsList() {
+  const el = document.getElementById('contactsList');
+  const names = allGroupNames();
+  el.innerHTML = names.map(name => {
+    const c = groupContacts[name] || {};
+    const hidden = hiddenGroups.includes(name);
+    const n = esc(name);
+    return `<div style="display:flex;gap:6px;align-items:center;padding:8px 4px;border-bottom:1px solid #eef1f5">
+      <div style="width:128px;font-size:0.82rem;font-weight:600;color:${hidden?'#bbb':'#333'};flex-shrink:0;line-height:1.3">${name}${hidden?'<br><span style="font-weight:400;font-size:0.68rem">(ausgeblendet)</span>':''}</div>
+      <input placeholder="Ansprechperson" value="${(c.contact||'').replace(/"/g,'&quot;')}" oninput="updateContactField('${n}','contact',this.value)" style="flex:1;min-width:0;border:1.5px solid #dde3ea;border-radius:6px;padding:5px 7px;font-size:0.78rem">
+      <input placeholder="E-Mail" type="email" value="${(c.email||'').replace(/"/g,'&quot;')}" oninput="updateContactField('${n}','email',this.value)" style="flex:1;min-width:0;border:1.5px solid #dde3ea;border-radius:6px;padding:5px 7px;font-size:0.78rem">
+      <input placeholder="Telefon" value="${(c.phone||'').replace(/"/g,'&quot;')}" oninput="updateContactField('${n}','phone',this.value)" style="width:108px;border:1.5px solid #dde3ea;border-radius:6px;padding:5px 7px;font-size:0.78rem">
+      <button title="E-Mail senden" onclick="quickEmailGroup('${n}')" data-mailbtn="${name.replace(/"/g,'&quot;')}" ${c.email?'':'disabled'} style="background:#eef1f5;border-radius:6px;padding:5px 8px;flex-shrink:0">✉️</button>
+      <button title="${hidden?'In Legende einblenden':'Aus Legende ausblenden'}" onclick="${hidden?`showGroup('${n}')`:`hideGroup('${n}')`}" style="background:#eef1f5;border-radius:6px;padding:5px 8px;flex-shrink:0">${hidden?'👁':'🙈'}</button>
+    </div>`;
+  }).join('');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1336,7 +1519,7 @@ function showToast(msg) {
 // ═══════════════════════════════════════════════════════════
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeModal(); closeDelDialog(); }
+  if (e.key === 'Escape') { closeModal(); closeDelDialog(); closeContactsModal(); }
   if (e.key === 'ArrowLeft'  && !document.getElementById('modalOverlay').classList.contains('open')) navigate(-1);
   if (e.key === 'ArrowRight' && !document.getElementById('modalOverlay').classList.contains('open')) navigate(1);
 });
@@ -1390,6 +1573,27 @@ async function loadEvents() {
       customEvents = JSON.parse(stored);
     }
   }
+  await loadExtras();
+}
+
+async function loadExtras() {
+  if (window._fbDb) {
+    try {
+      const hSnap = await window._fbGetDocs(window._fbCol(window._fbDb, '_meta'));
+      const hDoc = hSnap.docs.find(d => d.id === 'hiddenGroups');
+      hiddenGroups = (hDoc && hDoc.data().names) || [];
+      const cSnap = await window._fbGetDocs(window._fbCol(window._fbDb, 'belegung_contacts'));
+      const loaded = {};
+      cSnap.docs.forEach(d => { const data = d.data(); if (data.group) loaded[data.group] = data; });
+      // Defaults fill gaps only – anything already saved (Firestore) wins.
+      groupContacts = { ...DEFAULT_CONTACTS, ...loaded };
+      return;
+    } catch(e) { console.warn('Firestore loadExtras:', e); }
+  }
+  try { hiddenGroups = JSON.parse(localStorage.getItem('belegung_hidden') || '[]'); } catch(_) { hiddenGroups = []; }
+  let localContacts = {};
+  try { localContacts = JSON.parse(localStorage.getItem('belegung_contacts') || '{}'); } catch(_) { localContacts = {}; }
+  groupContacts = { ...DEFAULT_CONTACTS, ...localContacts };
 }
 
 async function persistEvent(ev) {
@@ -1457,6 +1661,10 @@ if (window.location.protocol === 'file:') {
   } else {
     try { customEvents = JSON.parse(stored); } catch(_) { customEvents = buildSeedEvents(); }
   }
+  try { hiddenGroups = JSON.parse(localStorage.getItem('belegung_hidden') || '[]'); } catch(_) { hiddenGroups = []; }
+  let localContactsFile = {};
+  try { localContactsFile = JSON.parse(localStorage.getItem('belegung_contacts') || '{}'); } catch(_) { localContactsFile = {}; }
+  groupContacts = { ...DEFAULT_CONTACTS, ...localContactsFile };
   document.getElementById('loginOverlay').style.display = 'none';
   document.getElementById('appShell').style.display     = 'block';
   render();
