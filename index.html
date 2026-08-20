@@ -655,8 +655,9 @@ button {
 <div class="modal-overlay" id="contactsOverlay" onclick="closeContactsOnBg(event)">
   <div class="modal" style="width:680px">
     <h2>👤 Kontakte &amp; Gruppen</h2>
-    <p style="font-size:0.78rem;color:#889;margin:-10px 0 14px">Ansprechperson, E-Mail und Telefon je Gruppe hinterlegen und direkt anschreiben. Mit 🙈 eine Gruppe aus der Legende und dieser Liste ausblenden (Termine bleiben erhalten), mit 👁 wieder einblenden. Mit 🗑 die Kontaktdaten einer Gruppe löschen. Mit den Checkboxen mehrere auswählen und in einer E-Mail (BCC) gemeinsam anschreiben.</p>
+    <p style="font-size:0.78rem;color:#889;margin:-10px 0 14px">Ansprechperson, E-Mail und Telefon je Gruppe hinterlegen und direkt anschreiben. Mit ➕ eine neue Gruppe/Kontaktperson anlegen. Mit 🙈 eine Gruppe aus der Legende und dieser Liste ausblenden (Termine bleiben erhalten), mit 👁 wieder einblenden. Mit 🗑 die Kontaktdaten einer Gruppe löschen. Mit den Checkboxen mehrere auswählen und in einer E-Mail (BCC) gemeinsam anschreiben.</p>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;min-height:20px">
+      <button class="btn-secondary" onclick="addNewContact()" style="padding:6px 12px;font-size:0.8rem">➕ Neue Gruppe / Kontakt</button>
       <span id="hiddenToggleWrap"></span>
       <button class="btn-secondary" id="bulkEmailBtn" onclick="sendBulkEmail()" disabled style="padding:6px 12px;font-size:0.8rem">✉️ An Ausgewählte senden</button>
     </div>
@@ -1081,6 +1082,25 @@ function quickEmailGroup(name) {
   if (!c || !c.email) { openContactsModal(); showToast('Bitte zuerst E-Mail-Adresse hinterlegen'); return; }
   const sub = encodeURIComponent('Belegungsplan Brunnmattstrasse 50 – ' + name);
   window.location.href = `mailto:${encodeURIComponent(c.email)}?subject=${sub}`;
+}
+
+function addNewContact() {
+  const name = prompt('Name der neuen Gruppe / Kontaktperson:');
+  if (name === null) return;
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  if (allGroupNames().some(n => n.toLowerCase() === trimmed.toLowerCase())) {
+    showToast(`"${trimmed}" gibt es schon`);
+    return;
+  }
+  groupContacts[trimmed] = { group: trimmed, contact: '', email: '', phone: '' };
+  persistContact(trimmed);
+  if (hiddenGroups.includes(trimmed)) {
+    hiddenGroups = hiddenGroups.filter(n => n !== trimmed);
+    persistHiddenGroups();
+  }
+  renderContactsList();
+  showToast(`"${trimmed}" hinzugefügt – Kontaktdaten eintragen`);
 }
 
 let selectedContacts = new Set();
