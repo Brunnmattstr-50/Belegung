@@ -1013,8 +1013,10 @@ function renderLegend() {
 // ═══════════════════════════════════════════════════════════
 
 function allGroupNames() {
+  // Nur echte Gruppen (fixe Liste) + explizit angelegte Kontakte.
+  // Einmalige Termine (z.B. "Weihnachtsessen Schmid") sollen NICHT automatisch
+  // als eigener Kontakt-Eintrag auftauchen - dafür gibt es "+ Neue Gruppe / Kontakt".
   const names = new Set(Object.keys(GROUP_COLORS));
-  customEvents.forEach(e => names.add(e.title));
   Object.keys(groupContacts).forEach(n => names.add(n));
   return Array.from(names).sort((a,b) => a.localeCompare(b, 'de'));
 }
