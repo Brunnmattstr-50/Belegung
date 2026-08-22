@@ -551,6 +551,7 @@ button {
       <button class="action-btn" onclick="window.print()" title="Drucken / Als PDF speichern">🖨️ Drucken</button>
       <button class="action-btn" onclick="sendEmail()"    title="Aktuellen Plan mailen">📧 Mailen</button>
       <button class="action-btn" onclick="openContactsModal()" title="Kontakte &amp; Gruppen verwalten">👤 Kontakte</button>
+      <button class="action-btn" onclick="openNotesModal()" title="Notizen &amp; mündliche Vereinbarungen">📝 Notizen</button>
       <button class="action-btn primary" onclick="openAddEvent(null,null,null)">＋ Termin</button>
     </div>
   </div>
@@ -670,6 +671,22 @@ button {
   </div>
 </div>
 
+<!-- Notizen / mündliche Vereinbarungen -->
+<div class="modal-overlay" id="notesOverlay" onclick="closeNotesOnBg(event)">
+  <div class="modal" style="width:620px">
+    <h2>📝 Notizen</h2>
+    <p style="font-size:0.78rem;color:#889;margin:-10px 0 14px">Für allgemeine Notizen, mündliche Vereinbarungen, Telefonate etc. – nicht an eine bestimmte Gruppe gebunden. Jeder Eintrag wird automatisch mit Datum/Uhrzeit versehen.</p>
+    <textarea id="newNoteText" rows="3" placeholder="Neue Notiz eintragen…" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #ccd;border-radius:6px;font:inherit;resize:vertical"></textarea>
+    <div style="text-align:right;margin:8px 0 14px">
+      <button class="btn-primary" onclick="addNote()" style="padding:7px 16px;font-size:0.85rem">➕ Notiz hinzufügen</button>
+    </div>
+    <div id="notesList" style="max-height:44vh;overflow:auto"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeNotesModal()">Schliessen</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 </div><!-- end #appShell -->
@@ -749,6 +766,9 @@ const SEED_VERSION = '14'; // bump this when seed data changes to force re-seed
 let hiddenGroups = [];
 // Per-group contact info: { [groupName]: { group, contact, email, phone } }
 let groupContacts = {};
+
+// Allgemeine Notizen / mündliche Vereinbarungen: [{ id, text, ts }], neueste zuerst
+let notes = [];
 
 // Default contacts (Stand 19.8.26, von Ivan mitgeteilt). Diese füllen nur Lücken – ein Kontakt,
 // den jemand über das Kontakte-Panel bearbeitet und speichert (Firestore/localStorage), überschreibt
@@ -986,6 +1006,11 @@ function getAllEventsForDate(date) {
 // ═══════════════════════════════════════════════════════════
 
 function esc(s) { return String(s).replace(/'/g, "\\'"); }
+
+// HTML-escaping (for free-text content inserted via innerHTML, e.g. Notizen)
+function escHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
 
 function renderLegend() {
   const colors = { ...GROUP_COLORS };
@@ -1707,6 +1732,8 @@ async function loadExtras() {
       cSnap.docs.forEach(d => { const data = d.data(); if (data.group) loaded[data.group] = data; });
       // Defaults fill gaps only – anything already saved (Firestore) wins.
       groupContacts = { ...DEFAULT_CONTACTS, ...loaded };
+      const nSnap = await window._fbGetDocs(window._fbCol(window._fbDb, 'belegung_notes'));
+      notes = nSnap.docs.map(d => d.data()).sort((a,b) => (b.ts||0) - (a.ts||0));
       return;
     } catch(e) { console.warn('Firestore loadExtras:', e); }
   }
@@ -1714,6 +1741,73 @@ async function loadExtras() {
   let localContacts = {};
   try { localContacts = JSON.parse(localStorage.getItem('belegung_contacts') || '{}'); } catch(_) { localContacts = {}; }
   groupContacts = { ...DEFAULT_CONTACTS, ...localContacts };
+  try { notes = JSON.parse(localStorage.getItem('belegung_notes') || '[]'); } catch(_) { notes = []; }
+  notes.sort((a,b) => (b.ts||0) - (a.ts||0));
+}
+
+async function persistNotes() {
+  localStorage.setItem('belegung_notes', JSON.stringify(notes));
+}
+
+async function addNote() {
+  const el = document.getElementById('newNoteText');
+  const text = el.value.trim();
+  if (!text) return;
+  const note = { id: 'n_' + Date.now(), text, ts: Date.now() };
+  notes.unshift(note);
+  el.value = '';
+  if (window._fbDb) {
+    try { await window._fbSetDoc(window._fbDoc(window._fbDb, 'belegung_notes', note.id), note); }
+    catch(e) { console.warn('Firestore note save:', e); await persistNotes(); }
+  } else {
+    await persistNotes();
+  }
+  renderNotesList();
+  showToast('Notiz gespeichert');
+}
+
+async function deleteNote(id) {
+  if (!confirm('Diese Notiz löschen?')) return;
+  notes = notes.filter(n => n.id !== id);
+  if (window._fbDb) {
+    try { await window._fbDeleteDoc(window._fbDoc(window._fbDb, 'belegung_notes', id)); }
+    catch(e) { console.warn('Firestore note delete:', e); await persistNotes(); }
+  } else {
+    await persistNotes();
+  }
+  renderNotesList();
+  showToast('Notiz gelöscht');
+}
+
+function formatNoteDate(ts) {
+  const d = new Date(ts);
+  const pad = n => String(n).padStart(2, '0');
+  return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()} · ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function openNotesModal() {
+  renderNotesList();
+  document.getElementById('notesOverlay').classList.add('open');
+  document.getElementById('newNoteText').focus();
+}
+function closeNotesModal() { document.getElementById('notesOverlay').classList.remove('open'); }
+function closeNotesOnBg(e) { if (e.target.id === 'notesOverlay') closeNotesModal(); }
+
+function renderNotesList() {
+  const el = document.getElementById('notesList');
+  if (!notes.length) {
+    el.innerHTML = '<p style="color:#aab;font-size:0.85rem;text-align:center;padding:20px 0">Noch keine Notizen vorhanden.</p>';
+    return;
+  }
+  el.innerHTML = notes.map(n => `
+    <div style="border:1px solid #e3e6ee;border-radius:8px;padding:10px 12px;margin-bottom:8px;display:flex;gap:10px;align-items:flex-start">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:0.72rem;color:#99a;margin-bottom:4px">${formatNoteDate(n.ts)}</div>
+        <div style="white-space:pre-wrap;word-break:break-word;font-size:0.9rem">${escHtml(n.text)}</div>
+      </div>
+      <span onclick="deleteNote('${n.id}')" style="cursor:pointer;color:#c0392b;flex-shrink:0" title="Notiz löschen">🗑</span>
+    </div>
+  `).join('');
 }
 
 async function persistEvent(ev) {
@@ -1785,6 +1879,8 @@ if (window.location.protocol === 'file:') {
   let localContactsFile = {};
   try { localContactsFile = JSON.parse(localStorage.getItem('belegung_contacts') || '{}'); } catch(_) { localContactsFile = {}; }
   groupContacts = { ...DEFAULT_CONTACTS, ...localContactsFile };
+  try { notes = JSON.parse(localStorage.getItem('belegung_notes') || '[]'); } catch(_) { notes = []; }
+  notes.sort((a,b) => (b.ts||0) - (a.ts||0));
   document.getElementById('loginOverlay').style.display = 'none';
   document.getElementById('appShell').style.display     = 'block';
   render();
